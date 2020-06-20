@@ -9,35 +9,75 @@ import Warrior.Map as Map exposing (Map)
 import Warrior.Map.Tile as Tile exposing (Tile)
 import Warrior.Coordinate exposing (Coordinate)
 
+
 takeTurn : Warrior -> Map -> History -> Warrior.Action
 takeTurn warrior map history =
     let previousDir = lastMove warrior history |> Maybe.withDefault Direction.Left
     in
-    previousDir
-        |> exit warrior map
+    pickUpItem warrior map
+        |> Maybe.orElse (retreat warrior map history)
+        |> Maybe.orElse (heal warrior map)
+        |> Maybe.orElse (attack warrior map previousDir)
+        |> Maybe.orElse (exit warrior map previousDir)
         |> Maybe.orElse (proceed warrior map history previousDir)
-        |> Maybe.map Warrior.Move
         |> Maybe.withDefault Warrior.Wait
 
-exit : Warrior -> Map -> Direction -> Maybe Direction
+pickUpItem : Warrior -> Map -> Maybe Warrior.Action
+pickUpItem warrior map =
+    if Tile.isItem (Map.lookDown warrior map) then
+        Just Warrior.Pickup
+    else
+        Nothing
+
+retreat : Warrior -> Map -> History -> Maybe Warrior.Action
+retreat warrior map history =
+    Direction.all
+        |> List.any (Maybe.withDefault False << Maybe.map (Tile.isWarrior << Tuple.second) << List.head << look warrior map)
+        |> \nextToWarrior ->
+                if nextToWarrior && Warrior.health warrior <= 3 then
+                    Maybe.map (Warrior.Move << invert) (lastMove warrior history)
+                else
+                    Nothing
+
+heal : Warrior -> Map -> Maybe Warrior.Action
+heal warrior map =
+    Direction.all
+        |> List.any (Maybe.withDefault False << Maybe.map (Tile.isWarrior << Tuple.second) << List.head << look warrior map)
+        |> \nextToWarrior ->
+                if not nextToWarrior && Warrior.health warrior < Warrior.maxHealth warrior then
+                    Just Warrior.Heal
+                else
+                    Nothing
+
+exit : Warrior -> Map -> Direction -> Maybe Warrior.Action
 exit warrior map previous =
     directions
         |> dropWhile ((/=) previous)
         |> find (List.any (Tile.isExit << Tuple.second) << look warrior map)
+        |> Maybe.map Warrior.Move
 
-proceed : Warrior -> Map -> History -> Direction -> Maybe Direction
+attack : Warrior -> Map -> Direction -> Maybe Warrior.Action
+attack warrior map previous =
+    directions
+        |> dropWhile ((/=) previous)
+        |> find (Maybe.withDefault False << Maybe.map (Tile.isWarrior << Tuple.second) << List.head << look warrior map)
+        |> Maybe.map Warrior.Attack
+
+proceed : Warrior -> Map -> History -> Direction -> Maybe Warrior.Action
 proceed warrior map history previous =
     let dirs = dropWhile ((/=) previous) directions
         shouldProceed tiles =
-            canProceed tiles && (List.any (not << hasVisited warrior history << Tuple.first) (List.filter (not << Tile.isWall << Tuple.second) tiles))
+            canProceed tiles &&
+            List.any (not << hasVisited warrior history << Tuple.first) (List.filter (not << Tile.isWall << Tuple.second) tiles)
     in
     dirs
         |> find (shouldProceed << look warrior map)
         |> Maybe.orElse (find (canProceed << look warrior map) dirs)
+        |> Maybe.map Warrior.Move
 
 canProceed : List ( Coordinate, Tile ) -> Bool
 canProceed xs = case xs of
-    ( _, tile ) :: _ -> not (Tile.isWall tile)
+    ( _, tile ) :: _ -> Tile.canMoveOnto tile
     _ -> False
 
 hasVisited : Warrior -> History -> Coordinate -> Bool
@@ -68,3 +108,10 @@ directions =
     , Direction.Down
     , Direction.Left
     ]
+
+invert : Direction -> Direction
+invert dir = case dir of
+    Direction.Left -> Direction.Right
+    Direction.Up -> Direction.Down
+    Direction.Right -> Direction.Left
+    Direction.Down -> Direction.Up

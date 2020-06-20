@@ -11,6 +11,6 @@ main =
     Warrior.program
         { maps = Maps.all
         , players = [ ( "Player", Player.takeTurn ) ]
-        , msPerTurn = 200
+        , msPerTurn = 100
         , progressionFunction = Progression.reachExitPoint
         }
